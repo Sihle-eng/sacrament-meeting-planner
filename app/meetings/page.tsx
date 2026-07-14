@@ -1,9 +1,9 @@
-import  MeetingCard  from '@/components/MeetingCard';
+import MeetingCard from '@/components/MeetingCard';
 import { SacramentMeeting } from '@/lib/types';
 
 export default async function MeetingsPage() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/meetings`, { cache: 'no-store' });
+  // Use a relative URL - Next.js handles this on both localhost and Vercel
+  const res = await fetch('/api/meetings', { cache: 'no-store' });
 
   if (!res.ok) {
     return (

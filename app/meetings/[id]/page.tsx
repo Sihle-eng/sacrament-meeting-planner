@@ -14,8 +14,8 @@ export default async function MeetingDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/meetings/${id}`, { cache: 'no-store' });
+  // Use a relative URL - works on localhost and Vercel
+  const res = await fetch(`/api/meetings/${id}`, { cache: 'no-store' });
 
   if (res.status === 404) {
     notFound();
