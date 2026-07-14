@@ -3,19 +3,19 @@ import MeetingDetail from '@/components/MeetingDetail';
 import { SacramentMeeting } from '@/lib/types';
 
 interface PageProps {
-  params: {
-    id: string;
-  };
+  params: Promise<{ id: string }>;
 }
 
 export default async function MeetingDetailPage({ params }: PageProps) {
-  const id = parseInt(params.id, 10);
-  if (isNaN(id)) {
+  const { id } = await params;
+
+  const meetingId = parseInt(id, 10);
+  if (isNaN(meetingId)) {
     notFound();
   }
 
   // Use a relative URL - works on localhost and Vercel
-  const res = await fetch(`/api/meetings/${id}`, { cache: 'no-store' });
+  const res = await fetch(`/api/meetings/${meetingId}`, { cache: 'no-store' });
 
   if (res.status === 404) {
     notFound();
