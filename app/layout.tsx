@@ -1,22 +1,14 @@
-// app/layout.tsx
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
-import "./globals.css";
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+import Header from '@/components/Header';
+import Footer from '@/components/Footer';
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "TeamSync",
-  description: "Student Project Management Hub",
+  title: 'Sacrament Meeting Planner',
+  description: 'Plan and view sacrament meetings',
 };
 
 export default function RootLayout({
@@ -26,20 +18,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <nav className="bg-white shadow-md px-6 py-4">
-          <div className="container mx-auto flex justify-between items-center">
-            <Link href="/" className="text-2xl font-bold text-blue-700">
-              TeamSync
-            </Link>
-            <div className="space-x-4">
-              <Link href="/" className="text-gray-600 hover:text-blue-600">Home</Link>
-              <Link href="/dashboard" className="text-gray-600 hover:text-blue-600">Dashboard</Link>
-              <Link href="/login" className="text-gray-600 hover:text-blue-600">Login</Link>
-            </div>
-          </div>
-        </nav>
-        {children}
+      <body className={`${inter.className} flex min-h-screen flex-col bg-gray-50`}>
+        <Header />
+        <main className="flex-1 container mx-auto px-4 py-8">{children}</main>
+        <Footer />
       </body>
     </html>
   );
