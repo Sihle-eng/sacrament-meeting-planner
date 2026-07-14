@@ -1,20 +1,9 @@
 import MeetingCard from '@/components/MeetingCard';
-import { SacramentMeeting } from '@/lib/types';
+import { getMeetings } from '@/lib/meetings-db';
 
 export default async function MeetingsPage() {
-  // Use a relative URL - Next.js handles this on both localhost and Vercel
-  const res = await fetch('/api/meetings', { cache: 'no-store' });
-
-  if (!res.ok) {
-    return (
-      <div className="text-center py-12">
-        <h2 className="text-xl text-red-600">Failed to load meetings</h2>
-        <p className="text-gray-500">Please try again later.</p>
-      </div>
-    );
-  }
-
-  const meetings: SacramentMeeting[] = await res.json();
+  // Directly import data - NO fetch() needed!
+  const meetings = getMeetings();
 
   return (
     <div>

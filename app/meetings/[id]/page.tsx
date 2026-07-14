@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import MeetingDetail from '@/components/MeetingDetail';
-import { SacramentMeeting } from '@/lib/types';
+import { getMeetingById } from '@/lib/meetings-db';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -14,18 +14,12 @@ export default async function MeetingDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  // Use a relative URL - works on localhost and Vercel
-  const res = await fetch(`/api/meetings/${meetingId}`, { cache: 'no-store' });
+  // Directly import data - NO fetch() needed!
+  const meeting = getMeetingById(meetingId);
 
-  if (res.status === 404) {
+  if (!meeting) {
     notFound();
   }
-
-  if (!res.ok) {
-    throw new Error('Failed to load meeting details.');
-  }
-
-  const meeting: SacramentMeeting = await res.json();
 
   return <MeetingDetail meeting={meeting} />;
 }
