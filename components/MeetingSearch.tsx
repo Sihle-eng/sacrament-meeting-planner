@@ -1,29 +1,54 @@
 'use client';
 
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams, usePathname, useRouter } from 'next/navigation';
-import { useDebouncedCallback } from 'use-debounce';
 
 export default function MeetingSearch() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const { replace } = useRouter();
+  const [inputValue, setInputValue] = useState(searchParams.get('query')?.toString() ?? '');
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleSearch = useDebouncedCallback((term: string) => {
-    const params = new URLSearchParams(searchParams);
-    if (term) {
-      params.set('query', term);
-      params.set('page', '1'); // Reset to page 1 on new search
-    } else {
-      params.delete('query');
-    }
-    replace(`${pathname}?${params.toString()}`);
-  }, 300);
+  useEffect(() => {
+    setInputValue(searchParams.get('query')?.toString() ?? '');
+  }, [searchParams]);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleSearch = useCallback(
+    (term: string) => {
+      setInputValue(term);
+
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+
+      timeoutRef.current = setTimeout(() => {
+        const params = new URLSearchParams(searchParams.toString());
+        if (term) {
+          params.set('query', term);
+          params.set('page', '1');
+        } else {
+          params.delete('query');
+        }
+        replace(`${pathname}?${params.toString()}`);
+      }, 300);
+    },
+    [pathname, replace, searchParams],
+  );
 
   return (
     <div className="mb-4">
       <input
         type="text"
-        defaultValue={searchParams.get('query')?.toString()}
+        value={inputValue}
         placeholder="Search by speaker, presiding, conducting, or type..."
         onChange={(e) => handleSearch(e.target.value)}
         aria-label="Search meetings"

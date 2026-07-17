@@ -34,7 +34,7 @@ export default async function MeetingDetailPage({ params }: Props) {
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <dt className="text-sm font-medium text-gray-500">Meeting Type</dt>
-          <dd className="capitalize text-gray-900">{meeting.meeting_type}</dd>
+          <dd className="capitalize text-gray-900">{meeting.type}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-gray-500">Presiding</dt>
@@ -46,30 +46,22 @@ export default async function MeetingDetailPage({ params }: Props) {
         </div>
         <div>
           <dt className="text-sm font-medium text-gray-500">Opening Prayer</dt>
-          <dd className="text-gray-900">{meeting.opening_prayer}</dd>
+          <dd className="text-gray-900">{meeting.prayers.opening}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-gray-500">Closing Prayer</dt>
-          <dd className="text-gray-900">{meeting.closing_prayer}</dd>
+          <dd className="text-gray-900">{meeting.prayers.closing}</dd>
         </div>
-        <div>
-          <dt className="text-sm font-medium text-gray-500">Opening Hymn</dt>
-          <dd className="text-gray-900">
-            #{meeting.opening_hymn.number} - {meeting.opening_hymn.title}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-gray-500">Sacrament Hymn</dt>
-          <dd className="text-gray-900">
-            #{meeting.sacrament_hymn.number} - {meeting.sacrament_hymn.title}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-gray-500">Closing Hymn</dt>
-          <dd className="text-gray-900">
-            #{meeting.closing_hymn.number} - {meeting.closing_hymn.title}
-          </dd>
-        </div>
+        {meeting.hymns.map((hymn, index) => (
+          <div key={`${hymn.number}-${index}`}>
+            <dt className="text-sm font-medium text-gray-500">
+              {index === 0 ? 'Opening Hymn' : index === 1 ? 'Sacrament Hymn' : 'Closing Hymn'}
+            </dt>
+            <dd className="text-gray-900">
+              #{hymn.number} - {hymn.title}
+            </dd>
+          </div>
+        ))}
       </dl>
 
       <div className="mt-6">
@@ -83,12 +75,14 @@ export default async function MeetingDetailPage({ params }: Props) {
         </ul>
       </div>
 
-      {meeting.announcements.length > 0 && (
+      {(meeting.announcements?.length ?? 0) > 0 && (
         <div className="mt-6">
           <h2 className="text-lg font-semibold text-gray-900">Announcements</h2>
           <ul className="mt-2 list-inside list-disc space-y-1">
-            {meeting.announcements.map((announcement: string, idx: number) => (
-              <li key={idx} className="text-gray-700">{announcement}</li>
+            {meeting.announcements?.map((announcement: string, idx: number) => (
+              <li key={idx} className="text-gray-700">
+                {announcement}
+              </li>
             ))}
           </ul>
         </div>

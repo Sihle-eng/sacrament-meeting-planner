@@ -1,7 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-
-// Types – adjust the import path to match your project
-import { SacramentMeeting } from '@/types'; // or wherever your type lives
+import { SacramentMeeting } from '@/lib/types';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -43,22 +41,23 @@ export async function getMeetings(
     LIMIT ${limit} OFFSET ${offset}
   `;
 
-  // Map DB rows to your SacramentMeeting type
+  // Map DB rows to the existing SacramentMeeting type
   const meetings = rows.map((row: any) => ({
     id: row.id,
     date: row.date,
-    meeting_type: row.meeting_type,
+    type: row.meeting_type,
     presiding: row.presiding,
     conducting: row.conducting,
-    announcements: row.announcements || [],
-    opening_hymn: row.opening_hymn,
-    opening_prayer: row.opening_prayer,
-    ward_business: row.ward_business || [],
-    stake_business: row.stake_business || false,
-    sacrament_hymn: row.sacrament_hymn,
+    hymns: [row.opening_hymn, row.sacrament_hymn, row.closing_hymn].filter(Boolean),
+    prayers: {
+      opening: row.opening_prayer,
+      closing: row.closing_prayer,
+    },
     speakers: row.speakers || [],
-    closing_hymn: row.closing_hymn,
-    closing_prayer: row.closing_prayer,
+    announcements: row.announcements || [],
+    wardBusiness: row.ward_business || [],
+    stakeBusiness: row.stake_business || false,
+    musicalNumbers: row.musical_numbers || [],
   }));
 
   return { meetings, total };
@@ -74,18 +73,19 @@ export async function getMeetingById(id: number): Promise<SacramentMeeting | nul
   return {
     id: row.id,
     date: row.date,
-    meeting_type: row.meeting_type,
+    type: row.meeting_type,
     presiding: row.presiding,
     conducting: row.conducting,
-    announcements: row.announcements || [],
-    opening_hymn: row.opening_hymn,
-    opening_prayer: row.opening_prayer,
-    ward_business: row.ward_business || [],
-    stake_business: row.stake_business || false,
-    sacrament_hymn: row.sacrament_hymn,
+    hymns: [row.opening_hymn, row.sacrament_hymn, row.closing_hymn].filter(Boolean),
+    prayers: {
+      opening: row.opening_prayer,
+      closing: row.closing_prayer,
+    },
     speakers: row.speakers || [],
-    closing_hymn: row.closing_hymn,
-    closing_prayer: row.closing_prayer,
+    announcements: row.announcements || [],
+    wardBusiness: row.ward_business || [],
+    stakeBusiness: row.stake_business || false,
+    musicalNumbers: row.musical_numbers || [],
   };
 }
 

@@ -37,7 +37,7 @@ export default async function MeetingsPage({
                       })}
                     </p>
                     <p className="text-sm text-gray-500">
-                      Type: <span className="capitalize">{meeting.meeting_type}</span> • Presiding:{' '}
+                      Type: <span className="capitalize">{meeting.type}</span> • Presiding:{' '}
                       {meeting.presiding}
                     </p>
                     <p className="text-sm text-gray-500">
