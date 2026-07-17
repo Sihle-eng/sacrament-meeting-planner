@@ -1,122 +1,103 @@
-import { SacramentMeeting } from './types';
+import { neon } from '@neondatabase/serverless';
 
-// 5+ complete meeting records
-const meetings: SacramentMeeting[] = [
-  {
-    id: 1,
-    date: '2026-05-03',
-    type: 'Sacrament',
-    presiding: 'Bishop John Smith',
-    conducting: 'Brother David Brown',
-    hymns: [
-      { number: 1, title: 'The Morning Breaks' },
-      { number: 193, title: 'I Stand All Amazed', selectedBy: 'Sister Jane Doe' },
-    ],
-    prayers: {
-      opening: 'Brother Michael Green',
-      closing: 'Sister Emily White',
-    },
-    speakers: [
-      { name: 'Brother Thomas Clark', topic: 'Faith' },
-      { name: 'Sister Sarah Adams', topic: 'Charity' },
-    ],
-    musicalNumbers: [{ number: 301, title: 'I Am a Child of God' }],
-    wardBusiness: [{ title: 'New Member Welcome', description: 'Welcomed the Wilson family.' }],
-    announcements: ['Next week is Fast Sunday.'],
-  },
-  {
-    id: 2,
-    date: '2026-05-10',
-    type: 'Sacrament',
-    presiding: 'Bishop John Smith',
-    conducting: 'Brother David Brown',
-    hymns: [
-      { number: 2, title: 'The Spirit of God' },
-      { number: 102, title: 'Jesus, Lover of My Soul' },
-    ],
-    prayers: {
-      opening: 'Sister Laura Martinez',
-      closing: 'Brother James Wilson',
-    },
-    speakers: [
-      { name: 'Brother Robert Taylor', topic: 'Repentance' },
-      { name: 'Sister Mary Johnson', topic: 'Service' },
-    ],
-    announcements: ['Ward temple trip scheduled for May 20.'],
-  },
-  {
-    id: 3,
-    date: '2026-05-17',
-    type: 'Testimony',
-    presiding: 'Bishop John Smith',
-    conducting: 'Brother Richard Lee',
-    hymns: [
-      { number: 4, title: 'Truth Eternal' },
-      { number: 163, title: 'Lord, Dismiss Us with Thy Blessing' },
-    ],
-    prayers: {
-      opening: 'Brother Kevin Brown',
-      closing: 'Sister Patricia Davis',
-    },
-    speakers: [
-      { name: 'Sister Nancy Wilson', topic: 'Gratitude' },
-      { name: 'Brother Steven Harris', topic: 'Prayer' },
-    ],
-    wardBusiness: [{ title: 'Budget Approval', description: 'Quarterly budget reviewed and approved.' }],
-    stakeBusiness: [{ title: 'Stake Conference', description: 'Stake Conference will be June 1.' }],
-  },
-  {
-    id: 4,
-    date: '2026-05-24',
-    type: 'Sacrament',
-    presiding: 'Bishop John Smith',
-    conducting: 'Brother David Brown',
-    hymns: [
-      { number: 5, title: 'High on the Mountain Top' },
-      { number: 185, title: 'Reverently and Meekly Now' },
-    ],
-    prayers: {
-      opening: 'Sister Amanda Clark',
-      closing: 'Brother Daniel White',
-    },
-    speakers: [
-      { name: 'Sister Elizabeth Moore', topic: 'Endurance' },
-      { name: 'Brother William Jones', topic: 'Temples' },
-    ],
-    musicalNumbers: [{ number: 220, title: 'Lord, I Would Follow Thee' }],
-    announcements: ['Potluck after church next Sunday.'],
-  },
-  {
-    id: 5,
-    date: '2026-05-31',
-    type: 'Sacrament',
-    presiding: 'Bishop John Smith',
-    conducting: 'Brother Richard Lee',
-    hymns: [
-      { number: 3, title: 'Now Let Us Rejoice' },
-      { number: 140, title: 'Did You Think to Pray?' },
-    ],
-    prayers: {
-      opening: 'Brother James Anderson',
-      closing: 'Sister Karen Taylor',
-    },
-    speakers: [
-      { name: 'Brother Mark Robinson', topic: 'Obedience' },
-      { name: 'Sister Linda Wright', topic: 'Hope' },
-    ],
-    wardBusiness: [{ title: 'Youth Camp', description: 'Youth camp registrations are open.' }],
-    stakeBusiness: [{ title: 'Stake Youth Activity', description: 'Stake youth activity on June 5.' }],
-    announcements: ['Please pick up new ward directories.'],
-  },
-];
+// Types – adjust the import path to match your project
+import { SacramentMeeting } from '@/types'; // or wherever your type lives
 
-export function getMeetings(date?: string): SacramentMeeting[] {
-  if (date) {
-    return meetings.filter((m) => m.date === date);
+const sql = neon(process.env.DATABASE_URL!);
+
+// Get meetings with optional search + pagination
+export async function getMeetings(
+  query?: string,
+  page: number = 1,
+  limit: number = 5
+): Promise<{ meetings: SacramentMeeting[]; total: number }> {
+  const offset = (page - 1) * limit;
+  let whereClause = '';
+  const params: any[] = [];
+
+  if (query) {
+    whereClause = `
+      WHERE
+        meeting_type ILIKE $1
+        OR presiding ILIKE $1
+        OR conducting ILIKE $1
+        OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements(speakers) AS speaker
+          WHERE speaker->>'name' ILIKE $1
+        )
+    `;
+    params.push(`%${query}%`);
   }
-  return meetings;
+
+  // Count total
+  const countResult = await sql`
+    SELECT COUNT(*) FROM meetings ${whereClause ? sql`${whereClause}` : sql``}
+  `;
+  const total = parseInt(countResult[0].count);
+
+  // Fetch paginated rows
+  const rows = await sql`
+    SELECT * FROM meetings
+    ${whereClause ? sql`${whereClause}` : sql``}
+    ORDER BY date DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+
+  // Map DB rows to your SacramentMeeting type
+  const meetings = rows.map((row: any) => ({
+    id: row.id,
+    date: row.date,
+    meeting_type: row.meeting_type,
+    presiding: row.presiding,
+    conducting: row.conducting,
+    announcements: row.announcements || [],
+    opening_hymn: row.opening_hymn,
+    opening_prayer: row.opening_prayer,
+    ward_business: row.ward_business || [],
+    stake_business: row.stake_business || false,
+    sacrament_hymn: row.sacrament_hymn,
+    speakers: row.speakers || [],
+    closing_hymn: row.closing_hymn,
+    closing_prayer: row.closing_prayer,
+  }));
+
+  return { meetings, total };
 }
 
-export function getMeetingById(id: number): SacramentMeeting | undefined {
-  return meetings.find((m) => m.id === id);
+// Get a single meeting by ID
+export async function getMeetingById(id: number): Promise<SacramentMeeting | null> {
+  const rows = await sql`
+    SELECT * FROM meetings WHERE id = ${id}
+  `;
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    date: row.date,
+    meeting_type: row.meeting_type,
+    presiding: row.presiding,
+    conducting: row.conducting,
+    announcements: row.announcements || [],
+    opening_hymn: row.opening_hymn,
+    opening_prayer: row.opening_prayer,
+    ward_business: row.ward_business || [],
+    stake_business: row.stake_business || false,
+    sacrament_hymn: row.sacrament_hymn,
+    speakers: row.speakers || [],
+    closing_hymn: row.closing_hymn,
+    closing_prayer: row.closing_prayer,
+  };
+}
+
+// Stubs for Week 04 (keep these as-is for now)
+export async function addMeeting(data: any) {
+  // Will be implemented in Week 04
+}
+
+export async function updateMeeting(id: number, data: any) {
+  // Will be implemented in Week 04
+}
+
+export async function deleteMeeting(id: number) {
+  // Will be implemented in Week 04
 }
