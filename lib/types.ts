@@ -16,20 +16,21 @@ export interface WardBusinessItem {
   description?: string;
 }
 
+// lib/types.ts
 export interface SacramentMeeting {
-  id: number;
-  date: string; // ISO date string, e.g., "2026-05-03"
-  type: MeetingType;
-  presiding: string;
-  conducting: string;
-  hymns: Hymn[];
+  id: number;                // your DB uses integer ids
+  date: string;              // YYYY-MM-DD
+  type: string;              // e.g., "Sacrament", "Testimony", etc.
+  presiding: string | null;
+  conducting: string | null;
+  hymns: string[];           // array of hymn numbers or names
   prayers: {
-    opening: string;
-    closing: string;
+    opening: string | null;
+    closing: string | null;
   };
-  speakers: SpeakerItem[];
-  musicalNumbers?: Hymn[];
-  wardBusiness?: WardBusinessItem[];
-  stakeBusiness?: WardBusinessItem[];
-  announcements?: string[];
+  speakers: Array<{ name: string; topic?: string }>; // JSONB
+  announcements: string[];   // JSONB
+  wardBusiness: string[];    // JSONB
+  stakeBusiness: boolean;
+  musicalNumbers: string[];  // JSONB
 }
