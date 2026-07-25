@@ -1,7 +1,5 @@
-
 'use server';
 
-import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import {
@@ -9,36 +7,10 @@ import {
   updateMeeting as dbUpdateMeeting,
   deleteMeeting as dbDeleteMeeting,
 } from './meetings-db';
-import { SacramentMeeting } from './types';  // ✅ import the type
+import { MeetingFormSchema, type State } from './schemas';
+import { SacramentMeeting } from './types';
 
-// Zod schema (matches your form fields)
-export const MeetingFormSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
-  type: z.string().min(1, 'Meeting type is required'),
-  presiding: z.string().optional(),
-  conducting: z.string().optional(),
-  openingHymn: z.string().optional(),
-  sacramentHymn: z.string().optional(),
-  closingHymn: z.string().optional(),
-  openingPrayer: z.string().optional(),
-  closingPrayer: z.string().optional(),
-});
-
-export type State = {
-  message?: string;
-  errors?: {
-    date?: string[];
-    type?: string[];
-    presiding?: string[];
-    conducting?: string[];
-    openingHymn?: string[];
-    sacramentHymn?: string[];
-    closingHymn?: string[];
-    openingPrayer?: string[];
-    closingPrayer?: string[];
-  };
-};
-
+// ✅ Helper – now uses imported schema
 function validateMeetingForm(formData: FormData) {
   const raw = {
     date: formData.get('date') as string,
@@ -54,7 +26,23 @@ function validateMeetingForm(formData: FormData) {
   return MeetingFormSchema.safeParse(raw);
 }
 
-// CREATE
+const meetingTypeMap: [string, string][] = [
+  ['sacrament', 'regular'],
+  ['regular', 'regular'],
+  ['testimony', 'testimony'],
+  ['stake', 'stake'],
+  ['general', 'general'],
+  ['special', 'special'],
+];
+
+function normalizeMeetingType(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const match = meetingTypeMap.find(
+    ([key]) => normalized === key || normalized.startsWith(key) || normalized.includes(key)
+  );
+  return match ? match[1] : 'regular';
+}
+
 export async function createMeeting(prevState: State, formData: FormData): Promise<State> {
   const result = validateMeetingForm(formData);
   if (!result.success) {
@@ -66,10 +54,9 @@ export async function createMeeting(prevState: State, formData: FormData): Promi
 
   const { date, type, presiding, conducting, openingHymn, sacramentHymn, closingHymn, openingPrayer, closingPrayer } = result.data;
 
-  // Build the meeting object (without id)
   const meeting: Omit<SacramentMeeting, 'id'> = {
     date,
-    type,
+    type: normalizeMeetingType(type),
     presiding: presiding || null,
     conducting: conducting || null,
     hymns: [openingHymn || '', sacramentHymn || '', closingHymn || ''].filter(Boolean),
@@ -95,7 +82,6 @@ export async function createMeeting(prevState: State, formData: FormData): Promi
   redirect('/meetings');
 }
 
-// UPDATE (id is a number, but route param is string – convert)
 export async function updateMeeting(id: number, prevState: State, formData: FormData): Promise<State> {
   const result = validateMeetingForm(formData);
   if (!result.success) {
@@ -109,7 +95,7 @@ export async function updateMeeting(id: number, prevState: State, formData: Form
 
   const updateData: Partial<Omit<SacramentMeeting, 'id'>> = {
     date,
-    type,
+    type: normalizeMeetingType(type),
     presiding: presiding || null,
     conducting: conducting || null,
     hymns: [openingHymn || '', sacramentHymn || '', closingHymn || ''].filter(Boolean),
@@ -130,7 +116,6 @@ export async function updateMeeting(id: number, prevState: State, formData: Form
   redirect('/meetings');
 }
 
-// DELETE
 export async function deleteMeeting(id: number): Promise<void> {
   try {
     await dbDeleteMeeting(id);

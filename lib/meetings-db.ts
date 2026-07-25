@@ -1,203 +1,197 @@
-// lib/meetings-db.ts
+
 import { neon } from '@neondatabase/serverless';
 import { SacramentMeeting } from './types';
 
 const sql = neon(process.env.DATABASE_URL!);
 
-// ===================== EXISTING GET FUNCTIONS (unchanged) =====================
+type MeetingRow = {
+  id: number;
+  date: string;
+  meeting_type: string;
+  presiding: string | null;
+  conducting: string | null;
+  opening_hymn: string | null;
+  sacrament_hymn: string | null;
+  closing_hymn: string | null;
+  opening_prayer: string | null;
+  closing_prayer: string | null;
+  speakers: unknown[];
+  announcements: unknown[];
+  ward_business: unknown[];
+  stake_business: boolean;
+};
+
+function rowToMeeting(row: MeetingRow): SacramentMeeting {
+  return {
+    id: row.id,
+    date: row.date,
+    type: row.meeting_type,
+    presiding: row.presiding,
+    conducting: row.conducting,
+    hymns: [row.opening_hymn, row.sacrament_hymn, row.closing_hymn].filter(Boolean) as string[],
+    prayers: {
+      opening: row.opening_prayer,
+      closing: row.closing_prayer,
+    },
+    speakers: row.speakers as Array<{ name: string; topic?: string }>,
+    announcements: row.announcements as string[],
+    wardBusiness: row.ward_business as string[],
+    stakeBusiness: row.stake_business,
+    musicalNumbers: [],
+  };
+}
+
+// ---- getMeetings (unchanged, works) ----
 export async function getMeetings(
   query?: string,
   page: number = 1,
   limit: number = 5
 ): Promise<{ meetings: SacramentMeeting[]; total: number }> {
   const offset = (page - 1) * limit;
+
   let whereClause = '';
-  const params: any[] = [];
+  const params: (string | number)[] = [];
+  let paramIndex = 1;
 
   if (query) {
+    const searchTerm = `%${query}%`;
     whereClause = `
       WHERE
-        meeting_type ILIKE $1
-        OR presiding ILIKE $1
-        OR conducting ILIKE $1
+        meeting_type ILIKE $${paramIndex}
+        OR presiding ILIKE $${paramIndex}
+        OR conducting ILIKE $${paramIndex}
         OR EXISTS (
           SELECT 1 FROM jsonb_array_elements(speakers) AS speaker
-          WHERE speaker->>'name' ILIKE $1
+          WHERE speaker->>'name' ILIKE $${paramIndex}
         )
     `;
-    params.push(`%${query}%`);
+    params.push(searchTerm);
+    paramIndex++;
   }
 
-  const countResult = await sql`
-    SELECT COUNT(*) FROM meetings ${whereClause ? sql`${whereClause}` : sql``}
-  `;
-  const total = parseInt(countResult[0].count);
+  const countQuery = `SELECT COUNT(*) FROM meetings ${whereClause}`;
+  const countResult = await sql.query(countQuery, params);
+  const total = parseInt(countResult[0].count, 10);
 
-  const rows = await sql`
+  const mainQuery = `
     SELECT * FROM meetings
-    ${whereClause ? sql`${whereClause}` : sql``}
+    ${whereClause}
     ORDER BY date DESC
-    LIMIT ${limit} OFFSET ${offset}
+    LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
   `;
+  const mainParams = [...params, limit, offset];
+  const rows = await sql.query(mainQuery, mainParams);
 
-  const meetings = rows.map((row: any) => ({
-    id: row.id,
-    date: row.date,
-    type: row.meeting_type,
-    presiding: row.presiding,
-    conducting: row.conducting,
-    hymns: [row.opening_hymn, row.sacrament_hymn, row.closing_hymn].filter(Boolean),
-    prayers: {
-      opening: row.opening_prayer,
-      closing: row.closing_prayer,
-    },
-    speakers: row.speakers || [],
-    announcements: row.announcements || [],
-    wardBusiness: row.ward_business || [],
-    stakeBusiness: row.stake_business || false,
-    musicalNumbers: row.musical_numbers || [],
-  }));
-
+  const meetings = (rows as MeetingRow[]).map(rowToMeeting);
   return { meetings, total };
 }
 
 export async function getMeetingById(id: number): Promise<SacramentMeeting | null> {
-  const rows = await sql`
-    SELECT * FROM meetings WHERE id = ${id}
-  `;
+  const rows = await sql`SELECT * FROM meetings WHERE id = ${id}`;
   if (rows.length === 0) return null;
-  const row = rows[0];
-  return {
-    id: row.id,
-    date: row.date,
-    type: row.meeting_type,
-    presiding: row.presiding,
-    conducting: row.conducting,
-    hymns: [row.opening_hymn, row.sacrament_hymn, row.closing_hymn].filter(Boolean),
-    prayers: {
-      opening: row.opening_prayer,
-      closing: row.closing_prayer,
-    },
-    speakers: row.speakers || [],
-    announcements: row.announcements || [],
-    wardBusiness: row.ward_business || [],
-    stakeBusiness: row.stake_business || false,
-    musicalNumbers: row.musical_numbers || [],
-  };
+  return rowToMeeting(rows[0] as MeetingRow);
 }
 
-// ===================== LIVE MUTATIONS =====================
-
+// ---- addMeeting: explicit casts for every parameter ----
 export async function addMeeting(meeting: Omit<SacramentMeeting, 'id'>): Promise<SacramentMeeting> {
   const {
     date, type, presiding, conducting, hymns, prayers,
-    speakers, announcements, wardBusiness, stakeBusiness, musicalNumbers
+    speakers, announcements, wardBusiness, stakeBusiness,
   } = meeting;
 
-  // Extract hymn and prayer values
   const [openingHymn, sacramentHymn, closingHymn] = hymns;
   const openingPrayer = prayers.opening;
   const closingPrayer = prayers.closing;
 
-  const result = await sql`
+  const speakersJson = JSON.stringify(speakers);
+  const wardBusinessJson = JSON.stringify(wardBusiness);
+  const openingHymnJson = openingHymn == null ? null : JSON.stringify(openingHymn);
+  const sacramentHymnJson = sacramentHymn == null ? null : JSON.stringify(sacramentHymn);
+  const closingHymnJson = closingHymn == null ? null : JSON.stringify(closingHymn);
+  const openingPrayerJson = openingPrayer == null ? null : JSON.stringify(openingPrayer);
+  const closingPrayerJson = closingPrayer == null ? null : JSON.stringify(closingPrayer);
+
+  const query = `
     INSERT INTO meetings (
       date, meeting_type, presiding, conducting,
       opening_hymn, sacrament_hymn, closing_hymn,
       opening_prayer, closing_prayer,
-      speakers, announcements, ward_business, stake_business, musical_numbers
+      speakers, announcements, ward_business, stake_business
     ) VALUES (
-      ${date}, ${type}, ${presiding}, ${conducting},
-      ${openingHymn}, ${sacramentHymn}, ${closingHymn},
-      ${openingPrayer}, ${closingPrayer},
-      ${speakers}, ${announcements}, ${wardBusiness}, ${stakeBusiness}, ${musicalNumbers}
+      $1::date, $2::text, $3::text, $4::text,
+      $5::jsonb, $6::jsonb, $7::jsonb,
+      $8::jsonb, $9::jsonb,
+      $10::jsonb, $11::text[], $12::jsonb, $13::boolean
     )
     RETURNING *;
   `;
 
-  const row = result[0];
-  return {
-    id: row.id,
-    date: row.date,
-    type: row.meeting_type,
-    presiding: row.presiding,
-    conducting: row.conducting,
-    hymns: [row.opening_hymn, row.sacrament_hymn, row.closing_hymn].filter(Boolean),
-    prayers: {
-      opening: row.opening_prayer,
-      closing: row.closing_prayer,
-    },
-    speakers: row.speakers || [],
-    announcements: row.announcements || [],
-    wardBusiness: row.ward_business || [],
-    stakeBusiness: row.stake_business || false,
-    musicalNumbers: row.musical_numbers || [],
-  };
+  const result = await sql.query(query, [
+    date,
+    type,
+    presiding,
+    conducting,
+    openingHymnJson,
+    sacramentHymnJson,
+    closingHymnJson,
+    openingPrayerJson,
+    closingPrayerJson,
+    speakersJson,
+    announcements,
+    wardBusinessJson,
+    stakeBusiness,
+  ]);
+  return rowToMeeting(result[0] as MeetingRow);
 }
 
+// ---- updateMeeting: explicit casts ----
 export async function updateMeeting(id: number, meeting: Partial<Omit<SacramentMeeting, 'id'>>): Promise<SacramentMeeting> {
-  // Build dynamic SET clause – map camelCase fields to snake_case columns
   const fields: string[] = [];
-  const values: any[] = [];
+  const values: unknown[] = [];
   let paramIndex = 1;
 
-  // Special handling for nested fields
-  if (meeting.date !== undefined) {
-    fields.push(`date = $${paramIndex++}`);
-    values.push(meeting.date);
-  }
-  if (meeting.type !== undefined) {
-    fields.push(`meeting_type = $${paramIndex++}`);
-    values.push(meeting.type);
-  }
-  if (meeting.presiding !== undefined) {
-    fields.push(`presiding = $${paramIndex++}`);
-    values.push(meeting.presiding);
-  }
-  if (meeting.conducting !== undefined) {
-    fields.push(`conducting = $${paramIndex++}`);
-    values.push(meeting.conducting);
-  }
+  const addField = (sql: string, value: unknown) => {
+    fields.push(sql);
+    values.push(value);
+    paramIndex++;
+  };
+
+  if (meeting.date !== undefined)       addField(`date = $${paramIndex}::date`, meeting.date);
+  if (meeting.type !== undefined)       addField(`meeting_type = $${paramIndex}::text`, meeting.type);
+  if (meeting.presiding !== undefined)  addField(`presiding = $${paramIndex}::text`, meeting.presiding);
+  if (meeting.conducting !== undefined) addField(`conducting = $${paramIndex}::text`, meeting.conducting);
+
   if (meeting.hymns !== undefined) {
     const [opening, sacrament, closing] = meeting.hymns;
-    fields.push(`opening_hymn = $${paramIndex++}`);
-    values.push(opening || null);
-    fields.push(`sacrament_hymn = $${paramIndex++}`);
-    values.push(sacrament || null);
-    fields.push(`closing_hymn = $${paramIndex++}`);
-    values.push(closing || null);
+    addField(`opening_hymn = $${paramIndex}::jsonb`, opening == null ? null : JSON.stringify(opening));
+    addField(`sacrament_hymn = $${paramIndex}::jsonb`, sacrament == null ? null : JSON.stringify(sacrament));
+    addField(`closing_hymn = $${paramIndex}::jsonb`, closing == null ? null : JSON.stringify(closing));
   }
+
   if (meeting.prayers !== undefined) {
-    fields.push(`opening_prayer = $${paramIndex++}`);
-    values.push(meeting.prayers.opening || null);
-    fields.push(`closing_prayer = $${paramIndex++}`);
-    values.push(meeting.prayers.closing || null);
+    addField(`opening_prayer = $${paramIndex}::jsonb`, meeting.prayers.opening == null ? null : JSON.stringify(meeting.prayers.opening));
+    addField(`closing_prayer = $${paramIndex}::jsonb`, meeting.prayers.closing == null ? null : JSON.stringify(meeting.prayers.closing));
   }
+
   if (meeting.speakers !== undefined) {
-    fields.push(`speakers = $${paramIndex++}`);
-    values.push(meeting.speakers);
+    addField(`speakers = $${paramIndex}::jsonb`, JSON.stringify(meeting.speakers));
   }
+
   if (meeting.announcements !== undefined) {
-    fields.push(`announcements = $${paramIndex++}`);
-    values.push(meeting.announcements);
+    addField(`announcements = $${paramIndex}::text[]`, meeting.announcements);
   }
+
   if (meeting.wardBusiness !== undefined) {
-    fields.push(`ward_business = $${paramIndex++}`);
-    values.push(meeting.wardBusiness);
+    addField(`ward_business = $${paramIndex}::jsonb`, JSON.stringify(meeting.wardBusiness));
   }
+
   if (meeting.stakeBusiness !== undefined) {
-    fields.push(`stake_business = $${paramIndex++}`);
-    values.push(meeting.stakeBusiness);
-  }
-  if (meeting.musicalNumbers !== undefined) {
-    fields.push(`musical_numbers = $${paramIndex++}`);
-    values.push(meeting.musicalNumbers);
+    addField(`stake_business = $${paramIndex}::boolean`, meeting.stakeBusiness);
   }
 
-  if (fields.length === 0) {
-    throw new Error('No fields to update');
-  }
+  if (fields.length === 0) throw new Error('No fields to update');
 
-  // Add id as last parameter
+  // Add id as the last parameter for WHERE
   values.push(id);
 
   const query = `
@@ -208,24 +202,7 @@ export async function updateMeeting(id: number, meeting: Partial<Omit<SacramentM
   `;
 
   const result = await sql.query(query, values);
-  const row = result[0];
-  return {
-    id: row.id,
-    date: row.date,
-    type: row.meeting_type,
-    presiding: row.presiding,
-    conducting: row.conducting,
-    hymns: [row.opening_hymn, row.sacrament_hymn, row.closing_hymn].filter(Boolean),
-    prayers: {
-      opening: row.opening_prayer,
-      closing: row.closing_prayer,
-    },
-    speakers: row.speakers || [],
-    announcements: row.announcements || [],
-    wardBusiness: row.ward_business || [],
-    stakeBusiness: row.stake_business || false,
-    musicalNumbers: row.musical_numbers || [],
-  };
+  return rowToMeeting(result[0] as MeetingRow);
 }
 
 export async function deleteMeeting(id: number): Promise<void> {

@@ -1,8 +1,9 @@
 'use client';
 
 import { useActionState } from 'react';
-import { updateMeeting, State } from '@/lib/actions';
+import { updateMeeting} from '@/lib/actions';
 import { SacramentMeeting } from '@/lib/types';
+import { State } from '@/lib/schemas';  
 
 const initialState: State = { message: '', errors: {} };
 
