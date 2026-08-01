@@ -3,7 +3,16 @@ import { SacramentMeeting } from './types';
 
 const prisma = new PrismaClient();
 
-type MeetingRow = {
+function parseJson<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function rowToMeeting(row: {
   id: number;
   date: string;
   meeting_type: string;
@@ -18,39 +27,7 @@ type MeetingRow = {
   announcements: string | null;
   ward_business: string | null;
   stake_business: number;
-};
-
-async function ensureMeetingsTable() {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS meetings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT NOT NULL,
-      meeting_type TEXT NOT NULL,
-      presiding TEXT,
-      conducting TEXT,
-      opening_hymn TEXT,
-      sacrament_hymn TEXT,
-      closing_hymn TEXT,
-      opening_prayer TEXT,
-      closing_prayer TEXT,
-      speakers TEXT NOT NULL DEFAULT '[]',
-      announcements TEXT NOT NULL DEFAULT '[]',
-      ward_business TEXT NOT NULL DEFAULT '[]',
-      stake_business INTEGER NOT NULL DEFAULT 0
-    )
-  `);
-}
-
-function parseJson<T>(value: string | null | undefined, fallback: T): T {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function rowToMeeting(row: MeetingRow): SacramentMeeting {
+}): SacramentMeeting {
   const hymns = [row.opening_hymn, row.sacrament_hymn, row.closing_hymn].filter(Boolean) as string[];
 
   return {
@@ -77,30 +54,27 @@ export async function getMeetings(
   page: number = 1,
   limit: number = 5
 ): Promise<{ meetings: SacramentMeeting[]; total: number }> {
-  await ensureMeetingsTable();
-
   const offset = (page - 1) * limit;
-  const params: string[] = [];
-  let whereClause = '';
 
-  if (query) {
-    const searchTerm = `%${query}%`;
-    whereClause = `WHERE meeting_type LIKE ? OR presiding LIKE ? OR conducting LIKE ? OR speakers LIKE ?`;
-    params.push(searchTerm, searchTerm, searchTerm, searchTerm);
-  }
+  const where = query
+    ? {
+        OR: [
+          { meeting_type: { contains: query } },
+          { presiding: { contains: query } },
+          { conducting: { contains: query } },
+        ],
+      }
+    : undefined;
 
-  const countResult = await prisma.$queryRawUnsafe<{ count: number }[]>(
-    `SELECT COUNT(*) as count FROM meetings ${whereClause}`,
-    ...params
-  );
-  const total = Number(countResult[0]?.count ?? 0);
-
-  const rows = await prisma.$queryRawUnsafe<MeetingRow[]>(
-    `SELECT * FROM meetings ${whereClause} ORDER BY date DESC LIMIT ? OFFSET ?`,
-    ...params,
-    limit,
-    offset
-  );
+  const [total, rows] = await Promise.all([
+    prisma.meeting.count({ where }),
+    prisma.meeting.findMany({
+      where,
+      orderBy: { date: 'desc' },
+      skip: offset,
+      take: limit,
+    }),
+  ]);
 
   return {
     meetings: rows.map(rowToMeeting),
@@ -109,15 +83,12 @@ export async function getMeetings(
 }
 
 export async function getMeetingById(id: number): Promise<SacramentMeeting | null> {
-  await ensureMeetingsTable();
-  const rows = await prisma.$queryRawUnsafe<MeetingRow[]>(`SELECT * FROM meetings WHERE id = ?`, id);
-  if (rows.length === 0) return null;
-  return rowToMeeting(rows[0]);
+  const row = await prisma.meeting.findUnique({ where: { id } });
+  if (!row) return null;
+  return rowToMeeting(row);
 }
 
 export async function addMeeting(meeting: Omit<SacramentMeeting, 'id'>): Promise<SacramentMeeting> {
-  await ensureMeetingsTable();
-
   const {
     date,
     type,
@@ -135,89 +106,50 @@ export async function addMeeting(meeting: Omit<SacramentMeeting, 'id'>): Promise
   const openingPrayer = prayers.opening;
   const closingPrayer = prayers.closing;
 
-  await prisma.$executeRawUnsafe(
-    `
-      INSERT INTO meetings (
-        date, meeting_type, presiding, conducting,
-        opening_hymn, sacrament_hymn, closing_hymn,
-        opening_prayer, closing_prayer,
-        speakers, announcements, ward_business, stake_business
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    date,
-    type,
-    presiding,
-    conducting,
-    openingHymn ?? null,
-    sacramentHymn ?? null,
-    closingHymn ?? null,
-    openingPrayer ?? null,
-    closingPrayer ?? null,
-    JSON.stringify(speakers),
-    JSON.stringify(announcements),
-    JSON.stringify(wardBusiness),
-    stakeBusiness ? 1 : 0
-  );
+  const row = await prisma.meeting.create({
+    data: {
+      date,
+      meeting_type: type,
+      presiding,
+      conducting,
+      opening_hymn: openingHymn ?? null,
+      sacrament_hymn: sacramentHymn ?? null,
+      closing_hymn: closingHymn ?? null,
+      opening_prayer: openingPrayer ?? null,
+      closing_prayer: closingPrayer ?? null,
+      speakers: JSON.stringify(speakers),
+      announcements: JSON.stringify(announcements),
+      ward_business: JSON.stringify(wardBusiness),
+      stake_business: stakeBusiness ? 1 : 0,
+    },
+  });
 
-  const [created] = await prisma.$queryRawUnsafe<MeetingRow[]>(`SELECT * FROM meetings WHERE id = last_insert_rowid()`);
-  return rowToMeeting(created);
+  return rowToMeeting(row);
 }
 
 export async function updateMeeting(id: number, meeting: Partial<Omit<SacramentMeeting, 'id'>>): Promise<SacramentMeeting> {
-  await ensureMeetingsTable();
+  const row = await prisma.meeting.update({
+    where: { id },
+    data: {
+      date: meeting.date,
+      meeting_type: meeting.type,
+      presiding: meeting.presiding,
+      conducting: meeting.conducting,
+      opening_hymn: meeting.hymns?.[0] ?? undefined,
+      sacrament_hymn: meeting.hymns?.[1] ?? undefined,
+      closing_hymn: meeting.hymns?.[2] ?? undefined,
+      opening_prayer: meeting.prayers?.opening ?? undefined,
+      closing_prayer: meeting.prayers?.closing ?? undefined,
+      speakers: meeting.speakers ? JSON.stringify(meeting.speakers) : undefined,
+      announcements: meeting.announcements ? JSON.stringify(meeting.announcements) : undefined,
+      ward_business: meeting.wardBusiness ? JSON.stringify(meeting.wardBusiness) : undefined,
+      stake_business: meeting.stakeBusiness !== undefined ? (meeting.stakeBusiness ? 1 : 0) : undefined,
+    },
+  });
 
-  const fields: string[] = [];
-  const values: unknown[] = [];
-
-  const addField = (sql: string, value: unknown) => {
-    fields.push(sql);
-    values.push(value);
-  };
-
-  if (meeting.date !== undefined) addField('date = ?', meeting.date);
-  if (meeting.type !== undefined) addField('meeting_type = ?', meeting.type);
-  if (meeting.presiding !== undefined) addField('presiding = ?', meeting.presiding);
-  if (meeting.conducting !== undefined) addField('conducting = ?', meeting.conducting);
-
-  if (meeting.hymns !== undefined) {
-    const [opening, sacrament, closing] = meeting.hymns;
-    addField('opening_hymn = ?', opening ?? null);
-    addField('sacrament_hymn = ?', sacrament ?? null);
-    addField('closing_hymn = ?', closing ?? null);
-  }
-
-  if (meeting.prayers !== undefined) {
-    addField('opening_prayer = ?', meeting.prayers.opening ?? null);
-    addField('closing_prayer = ?', meeting.prayers.closing ?? null);
-  }
-
-  if (meeting.speakers !== undefined) {
-    addField('speakers = ?', JSON.stringify(meeting.speakers));
-  }
-
-  if (meeting.announcements !== undefined) {
-    addField('announcements = ?', JSON.stringify(meeting.announcements));
-  }
-
-  if (meeting.wardBusiness !== undefined) {
-    addField('ward_business = ?', JSON.stringify(meeting.wardBusiness));
-  }
-
-  if (meeting.stakeBusiness !== undefined) {
-    addField('stake_business = ?', meeting.stakeBusiness ? 1 : 0);
-  }
-
-  if (fields.length === 0) throw new Error('No fields to update');
-
-  values.push(id);
-  const query = `UPDATE meetings SET ${fields.join(', ')} WHERE id = ?`;
-  await prisma.$executeRawUnsafe(query, ...values);
-
-  const [updated] = await prisma.$queryRawUnsafe<MeetingRow[]>(`SELECT * FROM meetings WHERE id = ?`, id);
-  return rowToMeeting(updated);
+  return rowToMeeting(row);
 }
 
 export async function deleteMeeting(id: number): Promise<void> {
-  await ensureMeetingsTable();
-  await prisma.$executeRawUnsafe(`DELETE FROM meetings WHERE id = ?`, id);
+  await prisma.meeting.delete({ where: { id } });
 }
