@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getMeetings } from '@/lib/meetings-db';
 
+export const dynamic = 'force-dynamic';
+
 function getThisSunday(): Date {
   const today = new Date();
   const day = today.getDay(); // 0 = Sunday

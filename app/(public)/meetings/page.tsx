@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { deleteMeeting } from '@/lib/actions';
 import MeetingSearch from '@/components/MeetingSearch';
 
+export const dynamic = 'force-dynamic';
+
 // Helper to format date safely
 function formatDate(date: string | Date): string {
   if (!date) return '—';
