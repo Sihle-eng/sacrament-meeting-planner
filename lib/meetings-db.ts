@@ -1,7 +1,36 @@
 import { PrismaClient } from '@prisma/client';
 import { SacramentMeeting } from './types';
 
-const prisma = new PrismaClient();
+let prisma: PrismaClient | null = null;
+
+function getPrismaClient(): PrismaClient | null {
+  if (!process.env.DATABASE_URL) {
+    return null;
+  }
+
+  if (!prisma) {
+    prisma = new PrismaClient();
+  }
+
+  return prisma;
+}
+
+async function withPrisma<T>(
+  operation: (client: PrismaClient) => Promise<T>,
+  fallback: T
+): Promise<T> {
+  const client = getPrismaClient();
+  if (!client) {
+    return fallback;
+  }
+
+  try {
+    return await operation(client);
+  } catch (error) {
+    console.warn('Prisma database unavailable, using fallback data.', error);
+    return fallback;
+  }
+}
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -66,26 +95,36 @@ export async function getMeetings(
       }
     : undefined;
 
-  const [total, rows] = await Promise.all([
-    prisma.meeting.count({ where }),
-    prisma.meeting.findMany({
-      where,
-      orderBy: { date: 'desc' },
-      skip: offset,
-      take: limit,
-    }),
-  ]);
+  return withPrisma(
+    async (client) => {
+      const [total, rows] = await Promise.all([
+        client.meeting.count({ where }),
+        client.meeting.findMany({
+          where,
+          orderBy: { date: 'desc' },
+          skip: offset,
+          take: limit,
+        }),
+      ]);
 
-  return {
-    meetings: rows.map(rowToMeeting),
-    total,
-  };
+      return {
+        meetings: rows.map(rowToMeeting),
+        total,
+      };
+    },
+    { meetings: [], total: 0 }
+  );
 }
 
 export async function getMeetingById(id: number): Promise<SacramentMeeting | null> {
-  const row = await prisma.meeting.findUnique({ where: { id } });
-  if (!row) return null;
-  return rowToMeeting(row);
+  return withPrisma(
+    async (client) => {
+      const row = await client.meeting.findUnique({ where: { id } });
+      if (!row) return null;
+      return rowToMeeting(row);
+    },
+    null
+  );
 }
 
 export async function addMeeting(meeting: Omit<SacramentMeeting, 'id'>): Promise<SacramentMeeting> {
@@ -106,50 +145,63 @@ export async function addMeeting(meeting: Omit<SacramentMeeting, 'id'>): Promise
   const openingPrayer = prayers.opening;
   const closingPrayer = prayers.closing;
 
-  const row = await prisma.meeting.create({
-    data: {
-      date,
-      meeting_type: type,
-      presiding,
-      conducting,
-      opening_hymn: openingHymn ?? null,
-      sacrament_hymn: sacramentHymn ?? null,
-      closing_hymn: closingHymn ?? null,
-      opening_prayer: openingPrayer ?? null,
-      closing_prayer: closingPrayer ?? null,
-      speakers: JSON.stringify(speakers),
-      announcements: JSON.stringify(announcements),
-      ward_business: JSON.stringify(wardBusiness),
-      stake_business: stakeBusiness ? 1 : 0,
-    },
-  });
+  return withPrisma(
+    async (client) => {
+      const row = await client.meeting.create({
+        data: {
+          date,
+          meeting_type: type,
+          presiding,
+          conducting,
+          opening_hymn: openingHymn ?? null,
+          sacrament_hymn: sacramentHymn ?? null,
+          closing_hymn: closingHymn ?? null,
+          opening_prayer: openingPrayer ?? null,
+          closing_prayer: closingPrayer ?? null,
+          speakers: JSON.stringify(speakers),
+          announcements: JSON.stringify(announcements),
+          ward_business: JSON.stringify(wardBusiness),
+          stake_business: stakeBusiness ? 1 : 0,
+        },
+      });
 
-  return rowToMeeting(row);
+      return rowToMeeting(row);
+    },
+    meeting as SacramentMeeting
+  );
 }
 
 export async function updateMeeting(id: number, meeting: Partial<Omit<SacramentMeeting, 'id'>>): Promise<SacramentMeeting> {
-  const row = await prisma.meeting.update({
-    where: { id },
-    data: {
-      date: meeting.date,
-      meeting_type: meeting.type,
-      presiding: meeting.presiding,
-      conducting: meeting.conducting,
-      opening_hymn: meeting.hymns?.[0] ?? undefined,
-      sacrament_hymn: meeting.hymns?.[1] ?? undefined,
-      closing_hymn: meeting.hymns?.[2] ?? undefined,
-      opening_prayer: meeting.prayers?.opening ?? undefined,
-      closing_prayer: meeting.prayers?.closing ?? undefined,
-      speakers: meeting.speakers ? JSON.stringify(meeting.speakers) : undefined,
-      announcements: meeting.announcements ? JSON.stringify(meeting.announcements) : undefined,
-      ward_business: meeting.wardBusiness ? JSON.stringify(meeting.wardBusiness) : undefined,
-      stake_business: meeting.stakeBusiness !== undefined ? (meeting.stakeBusiness ? 1 : 0) : undefined,
-    },
-  });
+  return withPrisma(
+    async (client) => {
+      const row = await client.meeting.update({
+        where: { id },
+        data: {
+          date: meeting.date,
+          meeting_type: meeting.type,
+          presiding: meeting.presiding,
+          conducting: meeting.conducting,
+          opening_hymn: meeting.hymns?.[0] ?? undefined,
+          sacrament_hymn: meeting.hymns?.[1] ?? undefined,
+          closing_hymn: meeting.hymns?.[2] ?? undefined,
+          opening_prayer: meeting.prayers?.opening ?? undefined,
+          closing_prayer: meeting.prayers?.closing ?? undefined,
+          speakers: meeting.speakers ? JSON.stringify(meeting.speakers) : undefined,
+          announcements: meeting.announcements ? JSON.stringify(meeting.announcements) : undefined,
+          ward_business: meeting.wardBusiness ? JSON.stringify(meeting.wardBusiness) : undefined,
+          stake_business: meeting.stakeBusiness !== undefined ? (meeting.stakeBusiness ? 1 : 0) : undefined,
+        },
+      });
 
-  return rowToMeeting(row);
+      return rowToMeeting(row);
+    },
+    meeting as SacramentMeeting
+  );
 }
 
 export async function deleteMeeting(id: number): Promise<void> {
-  await prisma.meeting.delete({ where: { id } });
+  await withPrisma(async (client) => {
+    await client.meeting.delete({ where: { id } });
+    return undefined;
+  }, undefined);
 }
