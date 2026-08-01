@@ -3,10 +3,23 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
-const prisma = new PrismaClient()
+let prisma: PrismaClient | null = null
+
+function getPrismaClient(): PrismaClient | null {
+  if (!process.env.DATABASE_URL) {
+    return null
+  }
+
+  if (!prisma) {
+    prisma = new PrismaClient()
+  }
+
+  return prisma
+}
 
 export const authConfig = {
   secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? 'development-secret',
+  trustHost: true,
   providers: [
     CredentialsProvider({
       name: 'Credentials',
@@ -20,7 +33,10 @@ export const authConfig = {
 
         if (!email || !password) return null
 
-        const user = await prisma.user.findUnique({ where: { email } })
+        const client = getPrismaClient()
+        if (!client) return null
+
+        const user = await client.user.findUnique({ where: { email } })
         if (!user) return null
 
         const isValid = await bcrypt.compare(password, user.passwordHash)

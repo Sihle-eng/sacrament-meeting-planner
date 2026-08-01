@@ -1,4 +1,6 @@
-import { auth } from '@/lib/auth'
+import { handlers } from '@/lib/auth'
 
-export const GET = auth
-export const POST = auth
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+export const { GET, POST } = handlers
